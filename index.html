@@ -5,15 +5,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Träningsapp</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
     <style>
         body { @apply bg-gray-900 text-white; color-scheme: dark; }
         input, select, textarea { color: white; }
         .quote-text { font-style: italic; font-size: 1.1rem; line-height: 1.6; }
+        .sync-status { position: fixed; bottom-4; right-4; padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; }
+        .sync-syncing { @apply bg-blue-600; }
+        .sync-success { @apply bg-green-600; }
+        .sync-error { @apply bg-red-600; }
     </style>
 </head>
 <body>
     <div id="app" class="min-h-screen bg-gray-900 text-white"></div>
+    <div id="syncStatus" class="sync-status hidden">Synking...</div>
+
     <script>
+        // ===== FIREBASE CONFIG - UPPDATERA MED DINA KEYS =====
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY_HERE",
+            authDomain: "YOUR_AUTH_DOMAIN_HERE",
+            projectId: "YOUR_PROJECT_ID_HERE",
+            storageBucket: "YOUR_STORAGE_BUCKET_HERE",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE",
+            appId: "YOUR_APP_ID_HERE"
+        };
+        // ===================================================
+
+        let db = null;
+        let firebaseReady = false;
+
+        // Initialize Firebase
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            firebaseReady = true;
+            console.log("✓ Firebase initialized");
+        } catch (e) {
+            console.warn("Firebase not configured. Using local storage only:", e.message);
+        }
+
         const gymQuotes = [
             "Träningen är inte bara fysisk - det är mental styrka.",
             "Din framtida själv kommer att tacka dig för det du gör idag.",
@@ -44,7 +76,7 @@
                 return gymQuotes[hash % gymQuotes.length];
             },
 
-            loadMockData() {
+            async loadMockData() {
                 this.exercises = [
                     { id: "1", name: "Bänkpress", muscleGroup: "Bröst", description: "Liggande bröstövning" },
                     { id: "2", name: "Squat", muscleGroup: "Ben", description: "Knäbening" },
@@ -61,10 +93,90 @@
                 }
             },
 
+            async loadFromFirebase() {
+                if (!firebaseReady) return;
+                try {
+                    showSyncStatus("Läser från molnet...");
+                    
+                    // Load exercises
+                    const exercisesSnap = await db.collection("exercises").get();
+                    this.exercises = exercisesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    if (this.exercises.length === 0) await this.saveExercisesToFirebase();
+                    
+                    // Load profiles data
+                    for (let profileKey in this.profiles) {
+                        const profileSnap = await db.collection("profiles").doc(profileKey).get();
+                        if (profileSnap.exists) {
+                            this.profiles[profileKey] = { ...this.profiles[profileKey], ...profileSnap.data() };
+                        }
+                    }
+                    
+                    showSyncStatus("✓ Synkat från molnet", "success");
+                } catch (e) {
+                    console.error("Firebase load error:", e);
+                    showSyncStatus("⚠ Kunde inte läsa molnet", "error");
+                }
+            },
+
+            async saveExercisesToFirebase() {
+                if (!firebaseReady) return;
+                try {
+                    const batch = db.batch();
+                    for (let exercise of this.exercises) {
+                        const ref = db.collection("exercises").doc(exercise.id);
+                        batch.set(ref, { name: exercise.name, muscleGroup: exercise.muscleGroup, description: exercise.description });
+                    }
+                    await batch.commit();
+                    showSyncStatus("✓ Övningar sparade", "success");
+                } catch (e) {
+                    console.error("Save exercises error:", e);
+                    showSyncStatus("⚠ Spara fel", "error");
+                }
+            },
+
+            async saveProfileToFirebase(profileKey) {
+                if (!firebaseReady) return;
+                try {
+                    const profile = this.profiles[profileKey];
+                    await db.collection("profiles").doc(profileKey).set({
+                        name: profile.name,
+                        color: profile.color,
+                        workoutTemplates: profile.workoutTemplates,
+                        workoutSessions: profile.workoutSessions
+                    });
+                    showSyncStatus("✓ Sparat", "success", 1500);
+                } catch (e) {
+                    console.error("Save profile error:", e);
+                    showSyncStatus("⚠ Spara fel", "error");
+                }
+            },
+
             getCurrentProfileData() { return this.profiles[this.currentProfile]; },
             switchProfile(profileKey) { if (this.profiles[profileKey]) { this.currentProfile = profileKey; this.currentSession = null; return true; } return false; },
-            addWorkoutTemplate(template) { const profile = this.getCurrentProfileData(); profile.workoutTemplates.push({ id: Date.now().toString(), ...template }); },
-            addExercise(exercise) { this.exercises.push({ id: Date.now().toString(), ...exercise }); },
+            
+            addWorkoutTemplate(template) {
+                const profile = this.getCurrentProfileData();
+                profile.workoutTemplates.push({ id: Date.now().toString(), ...template });
+                this.saveProfileToFirebase(this.currentProfile);
+            },
+
+            async addExercise(exercise) {
+                const newExercise = { id: Date.now().toString(), ...exercise };
+                this.exercises.push(newExercise);
+                if (firebaseReady) {
+                    try {
+                        await db.collection("exercises").doc(newExercise.id).set({
+                            name: newExercise.name,
+                            muscleGroup: newExercise.muscleGroup,
+                            description: newExercise.description
+                        });
+                        showSyncStatus("✓ Övning sparad", "success", 1500);
+                    } catch (e) {
+                        console.error("Add exercise error:", e);
+                    }
+                }
+            },
+
             startSession(templateId) {
                 const profile = this.getCurrentProfileData();
                 const template = profile.workoutTemplates.find(t => t.id === templateId);
@@ -73,7 +185,7 @@
                     profileKey: this.currentProfile,
                     templateId,
                     templateName: template.name,
-                    startTime: new Date(),
+                    startTime: new Date().toISOString(),
                     exercises: template.exercises.map(exId => {
                         const exercise = this.exercises.find(e => e.id === exId);
                         return { exerciseId: exId, name: exercise.name, sets: [] };
@@ -81,17 +193,56 @@
                     bodyWeight: null
                 };
             },
-            addSet(exerciseIndex, set) { if (this.currentSession && this.currentSession.exercises[exerciseIndex]) { this.currentSession.exercises[exerciseIndex].sets.push({ ...set, timestamp: new Date() }); } },
-            finishSession() { if (this.currentSession) { this.currentSession.endTime = new Date(); const profile = this.profiles[this.currentSession.profileKey]; profile.workoutSessions.push(this.currentSession); const session = this.currentSession; this.currentSession = null; return session; } }
+
+            addSet(exerciseIndex, set) {
+                if (this.currentSession && this.currentSession.exercises[exerciseIndex]) {
+                    this.currentSession.exercises[exerciseIndex].sets.push({
+                        ...set,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            },
+
+            finishSession() {
+                if (this.currentSession) {
+                    this.currentSession.endTime = new Date().toISOString();
+                    const profile = this.profiles[this.currentSession.profileKey];
+                    profile.workoutSessions.push(this.currentSession);
+                    this.saveProfileToFirebase(this.currentSession.profileKey);
+                    const session = this.currentSession;
+                    this.currentSession = null;
+                    return session;
+                }
+            }
         };
 
-        store.loadMockData();
+        function showSyncStatus(message, type = "syncing", duration = 3000) {
+            const statusEl = document.getElementById("syncStatus");
+            statusEl.textContent = message;
+            statusEl.className = `sync-status sync-${type}`;
+            statusEl.classList.remove("hidden");
+            
+            if (duration > 0) {
+                setTimeout(() => statusEl.classList.add("hidden"), duration);
+            }
+        }
 
         class TrainingApp {
-            constructor() { this.appContainer = document.getElementById("app"); this.currentView = "dashboard"; this.init(); }
-            init() { this.render(); }
+            constructor() {
+                this.appContainer = document.getElementById("app");
+                this.currentView = "dashboard";
+                this.init();
+            }
+
+            async init() {
+                await store.loadMockData();
+                await store.loadFromFirebase();
+                this.render();
+            }
+
             setView(view) { this.currentView = view; this.render(); }
             render() { const html = this.getCurrentView(); this.appContainer.innerHTML = html; this.attachEventListeners(); }
+
             getCurrentView() {
                 switch (this.currentView) {
                     case "dashboard": return this.renderDashboard();
@@ -166,11 +317,11 @@
                 const exercises = Array.from(checkboxes).map(cb => cb.value);
                 if (name && exercises.length > 0) { store.addWorkoutTemplate({ name, exercises, description: `${exercises.length} övningar` }); this.setView("planning"); }
             }
-            saveNewExercise() {
+            async saveNewExercise() {
                 const name = document.getElementById("exerciseName").value;
                 const muscleGroup = document.getElementById("muscleGroup").value;
                 const description = document.getElementById("exerciseDesc").value;
-                if (name) { store.addExercise({ name, muscleGroup, description }); this.setView("planning"); }
+                if (name) { await store.addExercise({ name, muscleGroup, description }); this.setView("planning"); }
             }
             attachEventListeners() {}
         }

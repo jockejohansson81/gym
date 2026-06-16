@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8000/configurator.html)",
+      "Bash(kill 87021)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(pkill -9 -f \"python3.*serve\")",
+      "Bash(kill -9 94285)",
+      "Bash(python3)",
+      "Bash(curl -s \"http://localhost:8000/configurator-pro.html\")",
+      "Bash(pkill -f \"python3.*serve.py\")",
+      "Bash(python3 -c \"import http.server, socketserver, os; os.chdir\\('/tmp'\\); socketserver.TCPServer\\(\\('', 8000\\), http.server.SimpleHTTPRequestHandler\\).serve_forever\\(\\)\")",
+      "Bash(pkill -9 -f \"python3.*serve.py\")",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs kill -9)",
+      "mcp__Claude_in_Chrome__list_connected_browsers"
+    ]
+  }
+}

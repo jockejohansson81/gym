@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Träningsapp</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
+    <style>
+        body { @apply bg-gray-900 text-white; }
+        .dark-mode { color-scheme: dark; }
+    </style>
+</head>
+<body class="dark-mode">
+    <div id="app" class="min-h-screen bg-gray-900 text-white"></div>
+    <script src="src/firebase-config.js"></script>
+    <script src="src/app.js" type="module"></script>
+</body>
+</html>

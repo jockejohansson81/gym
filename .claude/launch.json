@@ -4,7 +4,7 @@
     {
       "name": "traningsapp",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "cd /tmp/traningsapp && python3 -m http.server 8000"],
+      "runtimeArgs": ["-c", "cd '/Users/joakimjohansson/Library/CloudStorage/OneDrive-Personal/Tränings app' && python3 -m http.server 8000"],
       "port": 8000
     }
   ]

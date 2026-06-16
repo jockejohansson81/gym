@@ -6,27 +6,43 @@
     <title>Träningsapp</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body {
-            @apply bg-gray-900 text-white;
-            color-scheme: dark;
-        }
-        input, select, textarea {
-            color: white;
-        }
+        body { @apply bg-gray-900 text-white; color-scheme: dark; }
+        input, select, textarea { color: white; }
+        .quote-text { font-style: italic; font-size: 1.1rem; line-height: 1.6; }
     </style>
 </head>
 <body>
     <div id="app" class="min-h-screen bg-gray-900 text-white"></div>
-
     <script>
-        // State management för träningsappen
+        const gymQuotes = [
+            "Träningen är inte bara fysisk - det är mental styrka.",
+            "Din framtida själv kommer att tacka dig för det du gör idag.",
+            "Svagheten blir till styrka när du tränar på det.",
+            "En mil börjar med ett enda steg - ta ditt först idag.",
+            "Smärta är bara svaghet som lämnar kroppen.",
+            "Du är starkare än du tror. Bevisa det för dig själv.",
+            "Träning är tid som investeras i ditt framtida jag.",
+            "Det enda som står mellan dig och dina mål är träning.",
+            "Varje rep räknas. Varje set räknas. Du räknas.",
+            "Framgång är summan av små ansträngningar gjorda dag för dag."
+        ];
+
         const store = {
-            currentUser: null,
-            workoutTemplates: [],
+            profiles: {
+                joakim: { name: "Joakim", color: "#3b82f6", workoutTemplates: [], workoutSessions: [] },
+                zach: { name: "Zach", color: "#8b5cf6", workoutTemplates: [], workoutSessions: [] },
+                lova: { name: "Lova", color: "#ec4899", workoutTemplates: [], workoutSessions: [] }
+            },
+            currentProfile: "joakim",
             exercises: [],
-            workoutSessions: [],
             currentSession: null,
             currentView: "dashboard",
+
+            getDailyQuote() {
+                const today = new Date().toDateString();
+                const hash = today.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+                return gymQuotes[hash % gymQuotes.length];
+            },
 
             loadMockData() {
                 this.exercises = [
@@ -36,606 +52,129 @@
                     { id: "4", name: "Skuldorpress", muscleGroup: "Axlar", description: "Stående axelövning" },
                     { id: "5", name: "Markmonster", muscleGroup: "Ben", description: "Marklyft variant" },
                 ];
-
-                this.workoutTemplates = [
-                    {
-                        id: "push",
-                        name: "Push",
-                        exercises: ["1", "4"],
-                        description: "Bröst, axlar, triceps"
-                    },
-                    {
-                        id: "pull",
-                        name: "Pull",
-                        exercises: ["3"],
-                        description: "Rygg, biceps"
-                    },
-                    {
-                        id: "legs",
-                        name: "Ben",
-                        exercises: ["2", "5"],
-                        description: "Benövningar"
-                    }
-                ];
+                for (let profileKey in this.profiles) {
+                    this.profiles[profileKey].workoutTemplates = [
+                        { id: "push", name: "Push", exercises: ["1", "4"], description: "Bröst, axlar, triceps" },
+                        { id: "pull", name: "Pull", exercises: ["3"], description: "Rygg, biceps" },
+                        { id: "legs", name: "Ben", exercises: ["2", "5"], description: "Benövningar" }
+                    ];
+                }
             },
 
-            addWorkoutTemplate(template) {
-                this.workoutTemplates.push({
-                    id: Date.now().toString(),
-                    ...template
-                });
-            },
-
-            addExercise(exercise) {
-                this.exercises.push({
-                    id: Date.now().toString(),
-                    ...exercise
-                });
-            },
-
+            getCurrentProfileData() { return this.profiles[this.currentProfile]; },
+            switchProfile(profileKey) { if (this.profiles[profileKey]) { this.currentProfile = profileKey; this.currentSession = null; return true; } return false; },
+            addWorkoutTemplate(template) { const profile = this.getCurrentProfileData(); profile.workoutTemplates.push({ id: Date.now().toString(), ...template }); },
+            addExercise(exercise) { this.exercises.push({ id: Date.now().toString(), ...exercise }); },
             startSession(templateId) {
-                const template = this.workoutTemplates.find(t => t.id === templateId);
+                const profile = this.getCurrentProfileData();
+                const template = profile.workoutTemplates.find(t => t.id === templateId);
                 this.currentSession = {
                     id: Date.now().toString(),
+                    profileKey: this.currentProfile,
                     templateId,
                     templateName: template.name,
                     startTime: new Date(),
                     exercises: template.exercises.map(exId => {
                         const exercise = this.exercises.find(e => e.id === exId);
-                        return {
-                            exerciseId: exId,
-                            name: exercise.name,
-                            sets: []
-                        };
+                        return { exerciseId: exId, name: exercise.name, sets: [] };
                     }),
                     bodyWeight: null
                 };
             },
-
-            addSet(exerciseIndex, set) {
-                if (this.currentSession && this.currentSession.exercises[exerciseIndex]) {
-                    this.currentSession.exercises[exerciseIndex].sets.push({
-                        ...set,
-                        timestamp: new Date()
-                    });
-                }
-            },
-
-            finishSession() {
-                if (this.currentSession) {
-                    this.currentSession.endTime = new Date();
-                    this.workoutSessions.push(this.currentSession);
-                    const session = this.currentSession;
-                    this.currentSession = null;
-                    return session;
-                }
-            }
+            addSet(exerciseIndex, set) { if (this.currentSession && this.currentSession.exercises[exerciseIndex]) { this.currentSession.exercises[exerciseIndex].sets.push({ ...set, timestamp: new Date() }); } },
+            finishSession() { if (this.currentSession) { this.currentSession.endTime = new Date(); const profile = this.profiles[this.currentSession.profileKey]; profile.workoutSessions.push(this.currentSession); const session = this.currentSession; this.currentSession = null; return session; } }
         };
 
         store.loadMockData();
 
-        // App class
         class TrainingApp {
-            constructor() {
-                this.appContainer = document.getElementById("app");
-                this.currentView = "dashboard";
-                this.init();
-            }
-
-            init() {
-                this.render();
-            }
-
-            setView(view) {
-                this.currentView = view;
-                this.render();
-            }
-
-            render() {
-                const html = this.getCurrentView();
-                this.appContainer.innerHTML = html;
-                this.attachEventListeners();
-            }
-
+            constructor() { this.appContainer = document.getElementById("app"); this.currentView = "dashboard"; this.init(); }
+            init() { this.render(); }
+            setView(view) { this.currentView = view; this.render(); }
+            render() { const html = this.getCurrentView(); this.appContainer.innerHTML = html; this.attachEventListeners(); }
             getCurrentView() {
                 switch (this.currentView) {
-                    case "dashboard":
-                        return this.renderDashboard();
-                    case "planning":
-                        return this.renderPlanning();
-                    case "logging":
-                        return this.renderLogging();
-                    case "progress":
-                        return this.renderProgress();
-                    case "new-template":
-                        return this.renderNewTemplate();
-                    case "new-exercise":
-                        return this.renderNewExercise();
-                    default:
-                        return this.renderDashboard();
+                    case "dashboard": return this.renderDashboard();
+                    case "planning": return this.renderPlanning();
+                    case "logging": return this.renderLogging();
+                    case "progress": return this.renderProgress();
+                    case "new-template": return this.renderNewTemplate();
+                    case "new-exercise": return this.renderNewExercise();
+                    default: return this.renderDashboard();
                 }
             }
 
+            renderProfileSelector() {
+                return `<div class="flex gap-2 mb-4">${Object.entries(store.profiles).map(([key, profile]) => `<button onclick="app.switchProfile('${key}')" class="px-3 py-2 rounded-lg font-semibold text-sm transition ${store.currentProfile === key ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}">${profile.name}</button>`).join("")}</div>`;
+            }
+
+            switchProfile(profileKey) { if (store.switchProfile(profileKey)) { this.render(); } }
+
             renderDashboard() {
-                return `
-                    <div class="max-w-md mx-auto p-4 space-y-6">
-                        <div class="pt-6 pb-4">
-                            <h1 class="text-3xl font-bold text-white">Träningsapp</h1>
-                            <p class="text-gray-400 text-sm">Planera, logga och följ din progress</p>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6">
-                            <h2 class="text-xl font-semibold mb-4">Starta pass</h2>
-                            <div class="space-y-2">
-                                ${store.workoutTemplates.map(t => `
-                                    <button
-                                        onclick="app.startWorkoutSession('${t.id}')"
-                                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition"
-                                    >
-                                        ${t.name}
-                                    </button>
-                                `).join("")}
-                            </div>
-                        </div>
-
-                        ${store.workoutSessions.length > 0 ? `
-                            <div class="bg-gray-800 rounded-lg p-6">
-                                <h2 class="text-xl font-semibold mb-4">Senaste pass</h2>
-                                <div class="space-y-2">
-                                    ${store.workoutSessions.slice(-3).reverse().map(session => `
-                                        <div class="bg-gray-700 p-3 rounded">
-                                            <p class="font-semibold">${session.templateName}</p>
-                                            <p class="text-sm text-gray-400">${new Date(session.startTime).toLocaleDateString("sv-SE")}</p>
-                                            <p class="text-xs text-gray-500">${session.exercises.length} övningar</p>
-                                        </div>
-                                    `).join("")}
-                                </div>
-                            </div>
-                        ` : ""}
-
-                        <div class="grid grid-cols-3 gap-2 mt-8">
-                            <button
-                                onclick="app.setView('planning')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">📋</div>
-                                <div class="text-xs mt-1">Planering</div>
-                            </button>
-                            <button
-                                onclick="app.setView('progress')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">📊</div>
-                                <div class="text-xs mt-1">Progress</div>
-                            </button>
-                            <button
-                                onclick="app.setView('dashboard')"
-                                class="bg-blue-600 text-white py-3 rounded-lg"
-                            >
-                                <div class="text-xl">🏠</div>
-                                <div class="text-xs mt-1">Start</div>
-                            </button>
-                        </div>
-                    </div>
-                `;
+                const profile = store.getCurrentProfileData();
+                const quote = store.getDailyQuote();
+                return `<div class="max-w-md mx-auto p-4 space-y-6">${this.renderProfileSelector()}<div class="pt-4 pb-4"><h1 class="text-3xl font-bold text-white">${profile.name}'s Träning</h1><p class="text-gray-400 text-sm">Planera, logga och följ din progress</p></div><div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6 border border-blue-500"><p class="quote-text text-white">"${quote}"</p><p class="text-xs text-blue-200 mt-2">💪 Dagens citat</p></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Starta pass</h2><div class="space-y-2">${profile.workoutTemplates.map(t => `<button onclick="app.startWorkoutSession('${t.id}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">${t.name}</button>`).join("")}</div></div>${profile.workoutSessions.length > 0 ? `<div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Senaste pass</h2><div class="space-y-2">${profile.workoutSessions.slice(-3).reverse().map(session => `<div class="bg-gray-700 p-3 rounded"><p class="font-semibold">${session.templateName}</p><p class="text-sm text-gray-400">${new Date(session.startTime).toLocaleDateString("sv-SE")}</p></div>`).join("")}</div></div>` : ""}<div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
             renderPlanning() {
-                return `
-                    <div class="max-w-md mx-auto p-4 space-y-4">
-                        <div class="flex items-center justify-between mb-6">
-                            <h1 class="text-2xl font-bold">Planering</h1>
-                            <button onclick="app.setView('dashboard')" class="text-gray-400">✕</button>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6">
-                            <h2 class="text-lg font-semibold mb-4">Mina mallar</h2>
-                            <div class="space-y-2 mb-4">
-                                ${store.workoutTemplates.map(t => `
-                                    <div class="bg-gray-700 p-4 rounded hover:bg-gray-600 transition">
-                                        <p class="font-semibold">${t.name}</p>
-                                        <p class="text-sm text-gray-400">${t.exercises.length} övningar</p>
-                                    </div>
-                                `).join("")}
-                            </div>
-                            <button
-                                onclick="app.setView('new-template')"
-                                class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition"
-                            >
-                                + Ny mall
-                            </button>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6">
-                            <h2 class="text-lg font-semibold mb-4">Övningsbibliotek</h2>
-                            <div class="space-y-2 mb-4 max-h-64 overflow-y-auto">
-                                ${store.exercises.map(e => `
-                                    <div class="bg-gray-700 p-3 rounded text-sm">
-                                        <p class="font-semibold">${e.name}</p>
-                                        <p class="text-xs text-gray-400">${e.muscleGroup}</p>
-                                    </div>
-                                `).join("")}
-                            </div>
-                            <button
-                                onclick="app.setView('new-exercise')"
-                                class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition"
-                            >
-                                + Ny övning
-                            </button>
-                        </div>
-
-                        <div class="grid grid-cols-3 gap-2 mt-8 pb-4">
-                            <button
-                                onclick="app.setView('planning')"
-                                class="bg-blue-600 text-white py-3 rounded-lg"
-                            >
-                                <div class="text-xl">📋</div>
-                                <div class="text-xs mt-1">Planering</div>
-                            </button>
-                            <button
-                                onclick="app.setView('progress')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">📊</div>
-                                <div class="text-xs mt-1">Progress</div>
-                            </button>
-                            <button
-                                onclick="app.setView('dashboard')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">🏠</div>
-                                <div class="text-xs mt-1">Start</div>
-                            </button>
-                        </div>
-                    </div>
-                `;
+                const profile = store.getCurrentProfileData();
+                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Planering</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Mina mallar</h2><div class="space-y-2 mb-4">${profile.workoutTemplates.map(t => `<div class="bg-gray-700 p-4 rounded hover:bg-gray-600 transition"><p class="font-semibold">${t.name}</p><p class="text-sm text-gray-400">${t.exercises.length} övningar</p></div>`).join("")}</div><button onclick="app.setView('new-template')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny mall</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsbibliotek (delat)</h2><div class="space-y-2 mb-4 max-h-64 overflow-y-auto">${store.exercises.map(e => `<div class="bg-gray-700 p-3 rounded text-sm"><p class="font-semibold">${e.name}</p><p class="text-xs text-gray-400">${e.muscleGroup}</p></div>`).join("")}</div><button onclick="app.setView('new-exercise')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny övning (för alla)</button></div><div class="grid grid-cols-3 gap-2 mt-8 pb-4"><button onclick="app.setView('planning')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
             renderNewTemplate() {
-                return `
-                    <div class="max-w-md mx-auto p-4">
-                        <div class="flex items-center justify-between mb-6">
-                            <h1 class="text-2xl font-bold">Ny träningmall</h1>
-                            <button onclick="app.setView('planning')" class="text-gray-400">✕</button>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6 space-y-4">
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Namn</label>
-                                <input
-                                    id="templateName"
-                                    type="text"
-                                    placeholder="t.ex. Push, Pull, Legs"
-                                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                                >
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Välj övningar</label>
-                                <div id="exerciseCheckboxes" class="space-y-2 max-h-64 overflow-y-auto">
-                                    ${store.exercises.map((e, idx) => `
-                                        <label class="flex items-center bg-gray-700 p-3 rounded cursor-pointer hover:bg-gray-600">
-                                            <input type="checkbox" value="${e.id}" class="exercise-checkbox">
-                                            <span class="ml-3">${e.name} <span class="text-gray-400 text-sm">${e.muscleGroup}</span></span>
-                                        </label>
-                                    `).join("")}
-                                </div>
-                            </div>
-
-                            <button
-                                onclick="app.saveNewTemplate()"
-                                class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold transition"
-                            >
-                                Spara mall
-                            </button>
-                        </div>
-                    </div>
-                `;
+                return `<div class="max-w-md mx-auto p-4"><div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Ny träningmall</h1><button onclick="app.setView('planning')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6 space-y-4"><div><label class="block text-sm font-semibold mb-2">Namn</label><input id="templateName" type="text" placeholder="t.ex. Push, Pull, Legs" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-semibold mb-2">Välj övningar</label><div id="exerciseCheckboxes" class="space-y-2 max-h-64 overflow-y-auto">${store.exercises.map(e => `<label class="flex items-center bg-gray-700 p-3 rounded cursor-pointer hover:bg-gray-600"><input type="checkbox" value="${e.id}" class="exercise-checkbox"><span class="ml-3">${e.name} <span class="text-gray-400 text-sm">${e.muscleGroup}</span></span></label>`).join("")}</div></div><button onclick="app.saveNewTemplate()" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold transition">Spara mall</button></div></div>`;
             }
 
             renderNewExercise() {
-                return `
-                    <div class="max-w-md mx-auto p-4">
-                        <div class="flex items-center justify-between mb-6">
-                            <h1 class="text-2xl font-bold">Ny övning</h1>
-                            <button onclick="app.setView('planning')" class="text-gray-400">✕</button>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6 space-y-4">
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Övningsnamn</label>
-                                <input
-                                    id="exerciseName"
-                                    type="text"
-                                    placeholder="t.ex. Bänkpress"
-                                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-                                >
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Muskelgrupp</label>
-                                <select
-                                    id="muscleGroup"
-                                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                                >
-                                    <option value="Bröst">Bröst</option>
-                                    <option value="Rygg">Rygg</option>
-                                    <option value="Ben">Ben</option>
-                                    <option value="Axlar">Axlar</option>
-                                    <option value="Biceps">Biceps</option>
-                                    <option value="Triceps">Triceps</option>
-                                    <option value="Mage">Mage</option>
-                                    <option value="Cardio">Cardio</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold mb-2">Beskrivning</label>
-                                <textarea
-                                    id="exerciseDesc"
-                                    placeholder="Valfri beskrivning"
-                                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 h-20 resize-none"
-                                ></textarea>
-                            </div>
-
-                            <button
-                                onclick="app.saveNewExercise()"
-                                class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold transition"
-                            >
-                                Spara övning
-                            </button>
-                        </div>
-                    </div>
-                `;
+                return `<div class="max-w-md mx-auto p-4"><div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Ny övning</h1><button onclick="app.setView('planning')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6 space-y-4"><div><label class="block text-sm font-semibold mb-2">Övningsnamn</label><input id="exerciseName" type="text" placeholder="t.ex. Bänkpress" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-semibold mb-2">Muskelgrupp</label><select id="muscleGroup" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"><option>Bröst</option><option>Rygg</option><option>Ben</option><option>Axlar</option><option>Biceps</option><option>Triceps</option><option>Mage</option><option>Cardio</option></select></div><div><label class="block text-sm font-semibold mb-2">Beskrivning</label><textarea id="exerciseDesc" placeholder="Valfri beskrivning" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 h-20 resize-none"></textarea></div><button onclick="app.saveNewExercise()" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-semibold transition">Spara övning</button></div></div>`;
             }
 
             renderLogging() {
-                if (!store.currentSession) {
-                    return `
-                        <div class="max-w-md mx-auto p-4 text-center">
-                            <p class="text-gray-400">Inget aktivt pass</p>
-                            <button onclick="app.setView('dashboard')" class="mt-4 text-blue-400">Tillbaka</button>
-                        </div>
-                    `;
-                }
-
+                if (!store.currentSession) return `<div class="max-w-md mx-auto p-4 text-center"><p class="text-gray-400">Inget aktivt pass</p><button onclick="app.setView('dashboard')" class="mt-4 text-blue-400">Tillbaka</button></div>`;
                 const session = store.currentSession;
-                return `
-                    <div class="max-w-md mx-auto p-4 space-y-4 pb-24">
-                        <div class="sticky top-0 bg-gray-900 z-10 py-4">
-                            <h1 class="text-2xl font-bold">${session.templateName}</h1>
-                            <p class="text-gray-400 text-sm">${new Date(session.startTime).toLocaleTimeString("sv-SE")}</p>
-                        </div>
-
-                        ${session.exercises.map((exercise, exIdx) => `
-                            <div class="bg-gray-800 rounded-lg p-4">
-                                <h2 class="text-lg font-semibold mb-3">${exercise.name}</h2>
-
-                                <div id="sets-${exIdx}" class="space-y-2 mb-3">
-                                    ${exercise.sets.map((set, setIdx) => `
-                                        <div class="bg-gray-700 p-2 rounded text-sm">
-                                            Set ${setIdx + 1}: ${set.weight}kg × ${set.reps} reps
-                                        </div>
-                                    `).join("")}
-                                </div>
-
-                                <div class="space-y-2">
-                                    <div class="grid grid-cols-2 gap-2">
-                                        <input
-                                            type="number"
-                                            id="weight-${exIdx}"
-                                            placeholder="Vikt (kg)"
-                                            class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"
-                                        >
-                                        <input
-                                            type="number"
-                                            id="reps-${exIdx}"
-                                            placeholder="Reps"
-                                            class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"
-                                        >
-                                    </div>
-                                    <button
-                                        onclick="app.addSet(${exIdx})"
-                                        class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition"
-                                    >
-                                        + Lägg till set
-                                    </button>
-                                </div>
-                            </div>
-                        `).join("")}
-
-                        <div class="bg-gray-800 rounded-lg p-4">
-                            <label class="block text-sm font-semibold mb-2">Kroppsvikt (valfritt)</label>
-                            <input
-                                id="bodyWeight"
-                                type="number"
-                                step="0.1"
-                                placeholder="kg"
-                                class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"
-                            >
-                        </div>
-
-                        <div class="fixed bottom-0 left-0 right-0 bg-gray-900 p-4 space-y-2 max-w-md mx-auto">
-                            <button
-                                onclick="app.finishWorkoutSession()"
-                                class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition"
-                            >
-                                ✓ Avsluta pass
-                            </button>
-                            <button
-                                onclick="app.setView('dashboard')"
-                                class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition"
-                            >
-                                Avbryt
-                            </button>
-                        </div>
-                    </div>
-                `;
+                return `<div class="max-w-md mx-auto p-4 space-y-4 pb-24"><div class="sticky top-0 bg-gray-900 z-10 py-4"><h1 class="text-2xl font-bold">${session.templateName}</h1><p class="text-gray-400 text-sm">${new Date(session.startTime).toLocaleTimeString("sv-SE")}</p></div>${session.exercises.map((exercise, exIdx) => `<div class="bg-gray-800 rounded-lg p-4"><h2 class="text-lg font-semibold mb-3">${exercise.name}</h2><div class="space-y-2 mb-3">${exercise.sets.map((set, setIdx) => `<div class="bg-gray-700 p-2 rounded text-sm">Set ${setIdx + 1}: ${set.weight}kg × ${set.reps} reps</div>`).join("")}</div><div class="space-y-2"><div class="grid grid-cols-2 gap-2"><input type="number" id="weight-${exIdx}" placeholder="Vikt (kg)" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"><input type="number" id="reps-${exIdx}" placeholder="Reps" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"></div><button onclick="app.addSet(${exIdx})" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">+ Lägg till set</button></div></div>`).join("")}<div class="bg-gray-800 rounded-lg p-4"><label class="block text-sm font-semibold mb-2">Kroppsvikt (valfritt)</label><input id="bodyWeight" type="number" step="0.1" placeholder="kg" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"></div><div class="fixed bottom-0 left-0 right-0 bg-gray-900 p-4 space-y-2 max-w-md mx-auto"><button onclick="app.finishWorkoutSession()" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">✓ Avsluta pass</button><button onclick="app.setView('dashboard')" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition">Avbryt</button></div></div>`;
             }
 
             renderProgress() {
-                const stats = this.calculateStats();
-                return `
-                    <div class="max-w-md mx-auto p-4 space-y-4">
-                        <div class="flex items-center justify-between mb-6">
-                            <h1 class="text-2xl font-bold">Progress</h1>
-                            <button onclick="app.setView('dashboard')" class="text-gray-400">✕</button>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6 space-y-4">
-                            <div class="text-center">
-                                <p class="text-gray-400 text-sm">Totalt pass</p>
-                                <p class="text-4xl font-bold text-blue-400">${stats.totalSessions}</p>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-2">
-                                <div class="bg-gray-700 p-4 rounded text-center">
-                                    <p class="text-gray-400 text-xs">Denna vecka</p>
-                                    <p class="text-2xl font-bold">${stats.thisWeek}</p>
-                                </div>
-                                <div class="bg-gray-700 p-4 rounded text-center">
-                                    <p class="text-gray-400 text-xs">Denna månad</p>
-                                    <p class="text-2xl font-bold">${stats.thisMonth}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bg-gray-800 rounded-lg p-6">
-                            <h2 class="text-lg font-semibold mb-4">Övningsfrekvens</h2>
-                            <div class="space-y-2">
-                                ${Object.entries(stats.exerciseFrequency).map(([exerciseId, count]) => {
-                                    const exercise = store.exercises.find(e => e.id === exerciseId);
-                                    return `
-                                        <div class="flex justify-between items-center text-sm">
-                                            <span>${exercise.name}</span>
-                                            <div class="flex items-center gap-2">
-                                                <div class="w-24 bg-gray-700 rounded h-2">
-                                                    <div class="bg-blue-600 h-2 rounded" style="width: ${(count / stats.maxFrequency * 100)}%"></div>
-                                                </div>
-                                                <span class="font-semibold">${count}</span>
-                                            </div>
-                                        </div>
-                                    `;
-                                }).join("")}
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-3 gap-2 mt-8">
-                            <button
-                                onclick="app.setView('planning')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">📋</div>
-                                <div class="text-xs mt-1">Planering</div>
-                            </button>
-                            <button
-                                onclick="app.setView('progress')"
-                                class="bg-blue-600 text-white py-3 rounded-lg"
-                            >
-                                <div class="text-xl">📊</div>
-                                <div class="text-xs mt-1">Progress</div>
-                            </button>
-                            <button
-                                onclick="app.setView('dashboard')"
-                                class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"
-                            >
-                                <div class="text-xl">🏠</div>
-                                <div class="text-xs mt-1">Start</div>
-                            </button>
-                        </div>
-                    </div>
-                `;
+                const profile = store.getCurrentProfileData();
+                const stats = this.calculateStats(profile);
+                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Progress</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6 space-y-4"><div class="text-center"><p class="text-gray-400 text-sm">Totalt pass</p><p class="text-4xl font-bold text-blue-400">${stats.totalSessions}</p></div><div class="grid grid-cols-2 gap-2"><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna vecka</p><p class="text-2xl font-bold">${stats.thisWeek}</p></div><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna månad</p><p class="text-2xl font-bold">${stats.thisMonth}</p></div></div></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsfrekvens</h2><div class="space-y-2">${Object.entries(stats.exerciseFrequency).map(([exerciseId, count]) => { const exercise = store.exercises.find(e => e.id === exerciseId); return `<div class="flex justify-between items-center text-sm"><span>${exercise.name}</span><div class="flex items-center gap-2"><div class="w-24 bg-gray-700 rounded h-2"><div class="bg-blue-600 h-2 rounded" style="width: ${(count / stats.maxFrequency * 100)}%"></div></div><span class="font-semibold">${count}</span></div></div>`; }).join("")}</div></div><div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
-            calculateStats() {
+            calculateStats(profile) {
                 const now = new Date();
                 const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                 const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-                const thisWeek = store.workoutSessions.filter(s => new Date(s.startTime) > weekAgo).length;
-                const thisMonth = store.workoutSessions.filter(s => new Date(s.startTime) > monthAgo).length;
-
+                const thisWeek = profile.workoutSessions.filter(s => new Date(s.startTime) > weekAgo).length;
+                const thisMonth = profile.workoutSessions.filter(s => new Date(s.startTime) > monthAgo).length;
                 const exerciseFrequency = {};
-                store.workoutSessions.forEach(session => {
-                    session.exercises.forEach(exercise => {
-                        exerciseFrequency[exercise.exerciseId] = (exerciseFrequency[exercise.exerciseId] || 0) + 1;
-                    });
-                });
-
+                profile.workoutSessions.forEach(session => { session.exercises.forEach(exercise => { exerciseFrequency[exercise.exerciseId] = (exerciseFrequency[exercise.exerciseId] || 0) + 1; }); });
                 const maxFrequency = Math.max(...Object.values(exerciseFrequency), 1);
-
-                return {
-                    totalSessions: store.workoutSessions.length,
-                    thisWeek,
-                    thisMonth,
-                    exerciseFrequency,
-                    maxFrequency
-                };
+                return { totalSessions: profile.workoutSessions.length, thisWeek, thisMonth, exerciseFrequency, maxFrequency };
             }
 
-            startWorkoutSession(templateId) {
-                store.startSession(templateId);
-                this.currentView = "logging";
-                this.render();
-            }
-
+            startWorkoutSession(templateId) { store.startSession(templateId); this.currentView = "logging"; this.render(); }
             addSet(exerciseIndex) {
                 const weight = parseFloat(document.getElementById(`weight-${exerciseIndex}`).value);
                 const reps = parseInt(document.getElementById(`reps-${exerciseIndex}`).value);
-
-                if (weight && reps) {
-                    store.addSet(exerciseIndex, { weight, reps });
-                    document.getElementById(`weight-${exerciseIndex}`).value = weight;
-                    document.getElementById(`reps-${exerciseIndex}`).value = "";
-                    this.render();
-                }
+                if (weight && reps) { store.addSet(exerciseIndex, { weight, reps }); document.getElementById(`weight-${exerciseIndex}`).value = weight; document.getElementById(`reps-${exerciseIndex}`).value = ""; this.render(); }
             }
-
-            finishWorkoutSession() {
-                const bodyWeight = document.getElementById("bodyWeight").value;
-                if (bodyWeight) {
-                    store.currentSession.bodyWeight = parseFloat(bodyWeight);
-                }
-                store.finishSession();
-                this.setView("dashboard");
-            }
-
+            finishWorkoutSession() { const bodyWeight = document.getElementById("bodyWeight").value; if (bodyWeight) { store.currentSession.bodyWeight = parseFloat(bodyWeight); } store.finishSession(); this.setView("dashboard"); }
             saveNewTemplate() {
                 const name = document.getElementById("templateName").value;
                 const checkboxes = document.querySelectorAll(".exercise-checkbox:checked");
                 const exercises = Array.from(checkboxes).map(cb => cb.value);
-
-                if (name && exercises.length > 0) {
-                    store.addWorkoutTemplate({
-                        name,
-                        exercises,
-                        description: `${exercises.length} övningar`
-                    });
-                    this.setView("planning");
-                }
+                if (name && exercises.length > 0) { store.addWorkoutTemplate({ name, exercises, description: `${exercises.length} övningar` }); this.setView("planning"); }
             }
-
             saveNewExercise() {
                 const name = document.getElementById("exerciseName").value;
                 const muscleGroup = document.getElementById("muscleGroup").value;
                 const description = document.getElementById("exerciseDesc").value;
-
-                if (name) {
-                    store.addExercise({
-                        name,
-                        muscleGroup,
-                        description
-                    });
-                    this.setView("planning");
-                }
+                if (name) { store.addExercise({ name, muscleGroup, description }); this.setView("planning"); }
             }
-
-            attachEventListeners() {
-                // Event listeners are attached via onclick in the HTML
-            }
+            attachEventListeners() {}
         }
 
-        // Initialize app
         window.app = new TrainingApp();
     </script>
 </body>

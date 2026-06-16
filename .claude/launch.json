@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "configurator-server",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["/tmp/serve.py"],
+      "name": "traningsapp",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "cd /tmp/traningsapp && python3 -m http.server 8000"],
       "port": 8000
     }
   ]

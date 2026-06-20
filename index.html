@@ -41,7 +41,6 @@
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
             firebaseReady = true;
-            console.log("✓ Firebase initialized");
         } catch (e) {
             console.warn("Firebase not configured. Using local storage only:", e.message);
         }

@@ -7,7 +7,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         body { @apply bg-gray-900 text-white; color-scheme: dark; }
         input, select, textarea { color: white; }
@@ -16,10 +15,6 @@
         .sync-syncing { @apply bg-blue-600; }
         .sync-success { @apply bg-green-600; }
         .sync-error { @apply bg-red-600; }
-        input[type="number"] { -moz-appearance: textfield; }
-        input[type="number"]::-webkit-outer-spin-button,
-        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-        .suggested-weight { @apply text-yellow-400 text-sm; }
     </style>
 </head>
 <body>
@@ -27,6 +22,7 @@
     <div id="syncStatus" class="sync-status hidden">Synking...</div>
 
     <script>
+        // ===== FIREBASE CONFIG =====
         const firebaseConfig = {
             apiKey: "AIzaSyAB5E0JzIieDd-OanODhUBnLuOdzldWldg",
             authDomain: "traningsapp-c143c.firebaseapp.com",
@@ -35,10 +31,12 @@
             messagingSenderId: "1083983429138",
             appId: "1:1083983429138:web:6e1576e2c753c6846c62cb"
         };
+        // ============================
 
         let db = null;
         let firebaseReady = false;
 
+        // Initialize Firebase
         try {
             firebase.initializeApp(firebaseConfig);
             db = firebase.firestore();
@@ -88,9 +86,10 @@
                 ];
                 for (let profileKey in this.profiles) {
                     this.profiles[profileKey].workoutTemplates = [
-                        { id: "push", name: "Push", exercises: ["1", "4"], description: "Bröst, axlar, triceps" },
-                        { id: "pull", name: "Pull", exercises: ["3"], description: "Rygg, biceps" },
-                        { id: "legs", name: "Ben", exercises: ["2", "5"], description: "Benövningar" }
+                        { id: "push", name: "Push", type: "strength", exercises: ["1", "4"], description: "Bröst, axlar, triceps" },
+                        { id: "pull", name: "Pull", type: "strength", exercises: ["3"], description: "Rygg, biceps" },
+                        { id: "legs", name: "Ben", type: "strength", exercises: ["2", "5"], description: "Benövningar" },
+                        { id: "kondition", name: "Kondition", type: "cardio", description: "Löpning, cykel eller cardio" }
                     ];
                 }
             },
@@ -99,15 +98,20 @@
                 if (!firebaseReady) return;
                 try {
                     showSyncStatus("Läser från molnet...");
+                    
+                    // Load exercises
                     const exercisesSnap = await db.collection("exercises").get();
                     this.exercises = exercisesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     if (this.exercises.length === 0) await this.saveExercisesToFirebase();
+                    
+                    // Load profiles data
                     for (let profileKey in this.profiles) {
                         const profileSnap = await db.collection("profiles").doc(profileKey).get();
                         if (profileSnap.exists) {
                             this.profiles[profileKey] = { ...this.profiles[profileKey], ...profileSnap.data() };
                         }
                     }
+                    
                     showSyncStatus("✓ Synkat från molnet", "success");
                 } catch (e) {
                     console.error("Firebase load error:", e);
@@ -115,35 +119,20 @@
                 }
             },
 
-            getLastWeightForExercise(exerciseId) {
-                const profile = this.profiles[this.currentProfile];
-                for (let i = profile.workoutSessions.length - 1; i >= 0; i--) {
-                    const session = profile.workoutSessions[i];
-                    const exercise = session.exercises.find(e => e.exerciseId === exerciseId);
-                    if (exercise && exercise.sets.length > 0) {
-                        const lastSet = exercise.sets[exercise.sets.length - 1];
-                        return lastSet.weight;
+            async saveExercisesToFirebase() {
+                if (!firebaseReady) return;
+                try {
+                    const batch = db.batch();
+                    for (let exercise of this.exercises) {
+                        const ref = db.collection("exercises").doc(exercise.id);
+                        batch.set(ref, { name: exercise.name, muscleGroup: exercise.muscleGroup, description: exercise.description });
                     }
+                    await batch.commit();
+                    showSyncStatus("✓ Övningar sparade", "success");
+                } catch (e) {
+                    console.error("Save exercises error:", e);
+                    showSyncStatus("⚠ Spara fel", "error");
                 }
-                return null;
-            },
-
-            getProgressionData(exerciseId) {
-                const profile = this.profiles[this.currentProfile];
-                const data = {};
-                profile.workoutSessions.forEach(session => {
-                    const exercise = session.exercises.find(e => e.exerciseId === exerciseId);
-                    if (exercise && exercise.sets.length > 0) {
-                        const sessionDate = new Date(session.startTime);
-                        const week = Math.floor((new Date() - sessionDate) / (7 * 24 * 60 * 60 * 1000));
-                        const weekKey = `Vecka -${week}`;
-                        const maxWeight = Math.max(...exercise.sets.map(s => s.weight || 0));
-                        if (!data[weekKey] || maxWeight > data[weekKey]) {
-                            data[weekKey] = maxWeight;
-                        }
-                    }
-                });
-                return data;
             },
 
             async saveProfileToFirebase(profileKey) {
@@ -192,18 +181,32 @@
             startSession(templateId) {
                 const profile = this.getCurrentProfileData();
                 const template = profile.workoutTemplates.find(t => t.id === templateId);
-                this.currentSession = {
-                    id: Date.now().toString(),
-                    profileKey: this.currentProfile,
-                    templateId,
-                    templateName: template.name,
-                    startTime: new Date().toISOString(),
-                    exercises: template.exercises.map(exId => {
-                        const exercise = this.exercises.find(e => e.id === exId);
-                        return { exerciseId: exId, name: exercise.name, sets: [] };
-                    }),
-                    bodyWeight: null
-                };
+
+                if (template.type === "cardio") {
+                    this.currentSession = {
+                        id: Date.now().toString(),
+                        profileKey: this.currentProfile,
+                        templateId,
+                        templateName: template.name,
+                        type: "cardio",
+                        startTime: new Date().toISOString(),
+                        cardioActivities: []
+                    };
+                } else {
+                    this.currentSession = {
+                        id: Date.now().toString(),
+                        profileKey: this.currentProfile,
+                        templateId,
+                        templateName: template.name,
+                        type: "strength",
+                        startTime: new Date().toISOString(),
+                        exercises: template.exercises.map(exId => {
+                            const exercise = this.exercises.find(e => e.id === exId);
+                            return { exerciseId: exId, name: exercise.name, sets: [] };
+                        }),
+                        bodyWeight: null
+                    };
+                }
             },
 
             addSet(exerciseIndex, set) {
@@ -225,6 +228,23 @@
                     this.currentSession = null;
                     return session;
                 }
+            },
+
+            addCardioActivity(activityType, km, minutes) {
+                if (this.currentSession && this.currentSession.type === "cardio") {
+                    if ((!km || km <= 0) && (!minutes || minutes <= 0)) {
+                        alert("Minst en av distans eller tid måste anges");
+                        return false;
+                    }
+                    this.currentSession.cardioActivities.push({
+                        activityType,
+                        km: km || null,
+                        minutes: minutes || null,
+                        timestamp: new Date().toISOString()
+                    });
+                    return true;
+                }
+                return false;
             }
         };
 
@@ -233,6 +253,7 @@
             statusEl.textContent = message;
             statusEl.className = `sync-status sync-${type}`;
             statusEl.classList.remove("hidden");
+            
             if (duration > 0) {
                 setTimeout(() => statusEl.classList.add("hidden"), duration);
             }
@@ -242,13 +263,26 @@
             constructor() {
                 this.appContainer = document.getElementById("app");
                 this.currentView = "dashboard";
-                this.chart = null;
                 this.init();
             }
 
             async init() {
                 await store.loadMockData();
+                console.log("After loadMockData:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
                 await store.loadFromFirebase();
+                console.log("After loadFromFirebase:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
+                // Ensure Kondition template exists for all profiles
+                for (let profileKey in store.profiles) {
+                    if (!store.profiles[profileKey].workoutTemplates.find(t => t.id === "kondition")) {
+                        store.profiles[profileKey].workoutTemplates.push({
+                            id: "kondition",
+                            name: "Kondition",
+                            type: "cardio",
+                            description: "Löpning, cykel eller cardio"
+                        });
+                    }
+                }
+                console.log("After ensuring Kondition:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
                 this.render();
             }
 
@@ -276,12 +310,12 @@
             renderDashboard() {
                 const profile = store.getCurrentProfileData();
                 const quote = store.getDailyQuote();
-                return `<div class="max-w-md mx-auto p-4 space-y-6">${this.renderProfileSelector()}<div class="pt-4 pb-4"><h1 class="text-3xl font-bold text-white">${profile.name}'s Träning</h1><p class="text-gray-400 text-sm">Planera, logga och följ din progress</p></div><div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6 border border-blue-500"><p class="quote-text text-white">"${quote}"</p><p class="text-xs text-blue-200 mt-2">💪 Dagens citat</p></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Starta pass</h2><div class="space-y-2">${profile.workoutTemplates.map(t => `<button onclick="app.startWorkoutSession('${t.id}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">${t.name}</button>`).join("")}</div></div>${profile.workoutSessions.length > 0 ? `<div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Senaste pass</h2><div class="space-y-2">${profile.workoutSessions.slice(-3).reverse().map(session => `<div class="bg-gray-700 p-3 rounded"><p class="font-semibold">${session.templateName}</p><p class="text-sm text-gray-400">${new Date(session.startTime).toLocaleDateString("sv-SE")}</p><p class="text-xs text-gray-500">${session.exercises.reduce((sum, e) => sum + e.sets.length, 0)} set</p></div>`).join("")}</div></div>` : ""}<div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
+                return `<div class="max-w-md mx-auto p-4 space-y-6">${this.renderProfileSelector()}<div class="pt-4 pb-4"><h1 class="text-3xl font-bold text-white">${profile.name}'s Träning</h1><p class="text-gray-400 text-sm">Planera, logga och följ din progress</p></div><div class="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6 border border-blue-500"><p class="quote-text text-white">"${quote}"</p><p class="text-xs text-blue-200 mt-2">💪 Dagens citat</p></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Starta pass</h2><div class="space-y-2">${profile.workoutTemplates.map(t => `<button onclick="app.startWorkoutSession('${t.id}')" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold transition">${t.name}</button>`).join("")}</div></div>${profile.workoutSessions.length > 0 ? `<div class="bg-gray-800 rounded-lg p-6"><h2 class="text-xl font-semibold mb-4">Senaste pass</h2><div class="space-y-2">${profile.workoutSessions.slice(-3).reverse().map(session => `<div class="bg-gray-700 p-3 rounded"><p class="font-semibold">${session.templateName}</p><p class="text-sm text-gray-400">${session.type === "cardio" && session.cardioActivities?.length ? session.cardioActivities.map(a => a.activityType).join(", ") : ""} ${new Date(session.startTime).toLocaleDateString("sv-SE")}</p></div>`).join("")}</div></div>` : ""}<div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
             renderPlanning() {
                 const profile = store.getCurrentProfileData();
-                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Planering</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Mina mallar</h2><div class="space-y-2 mb-4">${profile.workoutTemplates.map(t => `<div class="bg-gray-700 p-4 rounded hover:bg-gray-600 transition"><p class="font-semibold">${t.name}</p><p class="text-sm text-gray-400">${t.exercises.length} övningar</p></div>`).join("")}</div><button onclick="app.setView('new-template')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny mall</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsbibliotek (delat)</h2><div class="space-y-2 mb-4 max-h-64 overflow-y-auto">${store.exercises.map(e => `<div class="bg-gray-700 p-3 rounded text-sm"><p class="font-semibold">${e.name}</p><p class="text-xs text-gray-400">${e.muscleGroup}</p></div>`).join("")}</div><button onclick="app.setView('new-exercise')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny övning</button></div><div class="grid grid-cols-3 gap-2 mt-8 pb-4"><button onclick="app.setView('planning')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
+                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Planering</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Mina mallar</h2><div class="space-y-2 mb-4">${profile.workoutTemplates.map(t => `<div class="bg-gray-700 p-4 rounded hover:bg-gray-600 transition"><p class="font-semibold">${t.name}</p><p class="text-sm text-gray-400">${t.type === "cardio" ? "Cardio träning" : t.exercises.length + " övningar"}</p></div>`).join("")}</div><button onclick="app.setView('new-template')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny mall</button></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsbibliotek (delat)</h2><div class="space-y-2 mb-4 max-h-64 overflow-y-auto">${store.exercises.map(e => `<div class="bg-gray-700 p-3 rounded text-sm"><p class="font-semibold">${e.name}</p><p class="text-xs text-gray-400">${e.muscleGroup}</p></div>`).join("")}</div><button onclick="app.setView('new-exercise')" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">+ Ny övning (för alla)</button></div><div class="grid grid-cols-3 gap-2 mt-8 pb-4"><button onclick="app.setView('planning')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
             renderNewTemplate() {
@@ -295,49 +329,21 @@
             renderLogging() {
                 if (!store.currentSession) return `<div class="max-w-md mx-auto p-4 text-center"><p class="text-gray-400">Inget aktivt pass</p><button onclick="app.setView('dashboard')" class="mt-4 text-blue-400">Tillbaka</button></div>`;
                 const session = store.currentSession;
-                return `<div class="max-w-md mx-auto p-4 space-y-4 pb-24"><div class="sticky top-0 bg-gray-900 z-10 py-4"><h1 class="text-2xl font-bold">${session.templateName}</h1><p class="text-gray-400 text-sm">${new Date(session.startTime).toLocaleTimeString("sv-SE")}</p></div>${session.exercises.map((exercise, exIdx) => {
-                    const lastWeight = store.getLastWeightForExercise(exercise.exerciseId);
-                    return `<div class="bg-gray-800 rounded-lg p-4"><h2 class="text-lg font-semibold mb-3">${exercise.name}</h2>${lastWeight ? `<p class="suggested-weight">💡 Förra gången: ${lastWeight}kg</p>` : ""}<div class="space-y-2 mb-3">${exercise.sets.map((set, setIdx) => `<div class="bg-gray-700 p-2 rounded text-sm">Set ${setIdx + 1}: ${set.weight}kg × ${set.reps} reps</div>`).join("")}</div><div class="space-y-2"><div class="grid grid-cols-2 gap-2"><input type="number" id="weight-${exIdx}" placeholder="Vikt (kg)" min="0" step="0.5" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"><input type="number" id="reps-${exIdx}" placeholder="Reps" min="0" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"></div><button onclick="app.addSet(${exIdx})" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">+ Lägg till set</button></div></div>`;
-                }).join("")}<div class="bg-gray-800 rounded-lg p-4"><label class="block text-sm font-semibold mb-2">Kroppsvikt (valfritt)</label><input id="bodyWeight" type="number" step="0.1" placeholder="kg" min="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"></div><div class="fixed bottom-0 left-0 right-0 bg-gray-900 p-4 space-y-2 max-w-md mx-auto"><button onclick="app.finishWorkoutSession()" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">✓ Avsluta pass</button><button onclick="app.setView('dashboard')" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition">Avbryt</button></div></div>`;
+                if (session.type === "cardio") {
+                    return this.renderCardioLogging();
+                }
+                return `<div class="max-w-md mx-auto p-4 space-y-4 pb-24"><div class="sticky top-0 bg-gray-900 z-10 py-4"><h1 class="text-2xl font-bold">${session.templateName}</h1><p class="text-gray-400 text-sm">${new Date(session.startTime).toLocaleTimeString("sv-SE")}</p></div>${session.exercises.map((exercise, exIdx) => `<div class="bg-gray-800 rounded-lg p-4"><h2 class="text-lg font-semibold mb-3">${exercise.name}</h2><div class="space-y-2 mb-3">${exercise.sets.map((set, setIdx) => `<div class="bg-gray-700 p-2 rounded text-sm">Set ${setIdx + 1}: ${set.weight}kg × ${set.reps} reps</div>`).join("")}</div><div class="space-y-2"><div class="grid grid-cols-2 gap-2"><input type="number" id="weight-${exIdx}" placeholder="Vikt (kg)" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"><input type="number" id="reps-${exIdx}" placeholder="Reps" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm focus:outline-none focus:border-blue-500"></div><button onclick="app.addSet(${exIdx})" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">+ Lägg till set</button></div></div>`).join("")}<div class="bg-gray-800 rounded-lg p-4"><label class="block text-sm font-semibold mb-2">Kroppsvikt (valfritt)</label><input id="bodyWeight" type="number" step="0.1" placeholder="kg" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"></div><div class="fixed bottom-0 left-0 right-0 bg-gray-900 p-4 space-y-2 max-w-md mx-auto"><button onclick="app.finishWorkoutSession()" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">✓ Avsluta pass</button><button onclick="app.setView('dashboard')" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition">Avbryt</button></div></div>`;
+            }
+
+            renderCardioLogging() {
+                const session = store.currentSession;
+                return `<div class="max-w-md mx-auto p-4 space-y-4 pb-24"><div class="sticky top-0 bg-gray-900 z-10 py-4"><h1 class="text-2xl font-bold">${session.templateName}</h1><p class="text-gray-400 text-sm">${new Date(session.startTime).toLocaleTimeString("sv-SE")}</p></div><div class="bg-gray-800 rounded-lg p-4"><h2 class="text-lg font-semibold mb-4">Lägg till aktivitet</h2><div class="space-y-3"><div><label class="block text-sm font-semibold mb-2">Aktivitetstyp</label><select id="activityType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"><option value="">Välj aktivitet</option><option value="Löpning">Löpning</option><option value="Cykel">Cykel</option><option value="Cardio">Cardio</option></select></div><div class="grid grid-cols-2 gap-2"><div><label class="block text-sm font-semibold mb-2">Distans (km)</label><input type="number" id="cardioKm" step="0.1" placeholder="valfritt" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"></div><div><label class="block text-sm font-semibold mb-2">Tid (min)</label><input type="number" id="cardioMinutes" placeholder="valfritt" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"></div></div><p class="text-xs text-gray-400">Minst en av distans eller tid måste anges</p><button onclick="app.addCardioActivity()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold transition">+ Lägg till aktivitet</button></div></div>${session.cardioActivities.length > 0 ? `<div class="bg-gray-800 rounded-lg p-4"><h2 class="text-lg font-semibold mb-3">Aktiviteter</h2><div class="space-y-2">${session.cardioActivities.map((activity, idx) => `<div class="bg-gray-700 p-3 rounded text-sm"><p class="font-semibold">${activity.activityType}</p><p class="text-gray-400">${activity.km ? activity.km + " km" : ""} ${activity.km && activity.minutes ? "•" : ""} ${activity.minutes ? activity.minutes + " min" : ""}</p></div>`).join("")}</div></div>` : ""}<div class="fixed bottom-0 left-0 right-0 bg-gray-900 p-4 space-y-2 max-w-md mx-auto"><button onclick="app.finishWorkoutSession()" class="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-semibold transition">✓ Avsluta pass</button><button onclick="app.setView('dashboard')" class="w-full bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg transition">Avbryt</button></div></div>`;
             }
 
             renderProgress() {
                 const profile = store.getCurrentProfileData();
                 const stats = this.calculateStats(profile);
-                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Progress</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6 space-y-4"><div class="text-center"><p class="text-gray-400 text-sm">Totalt pass</p><p class="text-4xl font-bold text-blue-400">${stats.totalSessions}</p></div><div class="grid grid-cols-2 gap-2"><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna vecka</p><p class="text-2xl font-bold">${stats.thisWeek}</p></div><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna månad</p><p class="text-2xl font-bold">${stats.thisMonth}</p></div></div></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Viktprogression</h2><div id="exerciseSelect" class="mb-4"><select id="exerciseSelector" onchange="app.updateProgressChart()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white focus:outline-none focus:border-blue-500"><option value="">Välj övning...</option>${store.exercises.map(e => `<option value="${e.id}">${e.name}</option>`).join("")}</select></div><canvas id="progressChart" class="max-w-full"></canvas></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsfrekvens</h2><div class="space-y-2">${Object.entries(stats.exerciseFrequency).map(([exerciseId, count]) => { const exercise = store.exercises.find(e => e.id === exerciseId); return `<div class="flex justify-between items-center text-sm"><span>${exercise.name}</span><div class="flex items-center gap-2"><div class="w-24 bg-gray-700 rounded h-2"><div class="bg-blue-600 h-2 rounded" style="width: ${(count / stats.maxFrequency * 100)}%"></div></div><span class="font-semibold">${count}</span></div></div>`; }).join("")}</div></div><div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
-            }
-
-            updateProgressChart() {
-                const selector = document.getElementById('exerciseSelector');
-                const exerciseId = selector.value;
-                if (!exerciseId) return;
-                const data = store.getProgressionData(exerciseId);
-                const labels = Object.keys(data).reverse();
-                const values = labels.map(l => data[l]);
-                const ctx = document.getElementById('progressChart');
-                if (this.chart) this.chart.destroy();
-                this.chart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Max vikt (kg)',
-                            data: values,
-                            borderColor: '#3b82f6',
-                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                            tension: 0.4,
-                            fill: true
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: { legend: { labels: { color: '#fff' } } },
-                        scales: {
-                            y: { ticks: { color: '#ccc' }, grid: { color: '#444' }, beginAtZero: true },
-                            x: { ticks: { color: '#ccc' }, grid: { color: '#444' } }
-                        }
-                    }
-                });
+                return `<div class="max-w-md mx-auto p-4 space-y-4">${this.renderProfileSelector()}<div class="flex items-center justify-between mb-6"><h1 class="text-2xl font-bold">Progress</h1><button onclick="app.setView('dashboard')" class="text-gray-400">✕</button></div><div class="bg-gray-800 rounded-lg p-6 space-y-4"><div class="text-center"><p class="text-gray-400 text-sm">Totalt pass</p><p class="text-4xl font-bold text-blue-400">${stats.totalSessions}</p></div><div class="grid grid-cols-2 gap-2"><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna vecka</p><p class="text-2xl font-bold">${stats.thisWeek}</p></div><div class="bg-gray-700 p-4 rounded text-center"><p class="text-gray-400 text-xs">Denna månad</p><p class="text-2xl font-bold">${stats.thisMonth}</p></div></div></div><div class="bg-gray-800 rounded-lg p-6"><h2 class="text-lg font-semibold mb-4">Övningsfrekvens</h2><div class="space-y-2">${Object.entries(stats.exerciseFrequency).map(([exerciseId, count]) => { const exercise = store.exercises.find(e => e.id === exerciseId); return `<div class="flex justify-between items-center text-sm"><span>${exercise.name}</span><div class="flex items-center gap-2"><div class="w-24 bg-gray-700 rounded h-2"><div class="bg-blue-600 h-2 rounded" style="width: ${(count / stats.maxFrequency * 100)}%"></div></div><span class="font-semibold">${count}</span></div></div>`; }).join("")}</div></div><div class="grid grid-cols-3 gap-2 mt-8"><button onclick="app.setView('planning')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">📋</div><div class="text-xs mt-1">Planering</div></button><button onclick="app.setView('progress')" class="bg-blue-600 text-white py-3 rounded-lg"><div class="text-xl">📊</div><div class="text-xs mt-1">Progress</div></button><button onclick="app.setView('dashboard')" class="bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg transition"><div class="text-xl">🏠</div><div class="text-xs mt-1">Start</div></button></div></div>`;
             }
 
             calculateStats(profile) {
@@ -347,7 +353,13 @@
                 const thisWeek = profile.workoutSessions.filter(s => new Date(s.startTime) > weekAgo).length;
                 const thisMonth = profile.workoutSessions.filter(s => new Date(s.startTime) > monthAgo).length;
                 const exerciseFrequency = {};
-                profile.workoutSessions.forEach(session => { session.exercises.forEach(exercise => { exerciseFrequency[exercise.exerciseId] = (exerciseFrequency[exercise.exerciseId] || 0) + 1; }); });
+                profile.workoutSessions.forEach(session => {
+                    if (session.exercises) {
+                        session.exercises.forEach(exercise => {
+                            exerciseFrequency[exercise.exerciseId] = (exerciseFrequency[exercise.exerciseId] || 0) + 1;
+                        });
+                    }
+                });
                 const maxFrequency = Math.max(...Object.values(exerciseFrequency), 1);
                 return { totalSessions: profile.workoutSessions.length, thisWeek, thisMonth, exerciseFrequency, maxFrequency };
             }
@@ -356,9 +368,25 @@
             addSet(exerciseIndex) {
                 const weight = parseFloat(document.getElementById(`weight-${exerciseIndex}`).value);
                 const reps = parseInt(document.getElementById(`reps-${exerciseIndex}`).value);
-                if (!isNaN(weight) && !isNaN(reps) && weight > 0 && reps > 0) { store.addSet(exerciseIndex, { weight, reps }); document.getElementById(`weight-${exerciseIndex}`).value = ""; document.getElementById(`reps-${exerciseIndex}`).value = ""; this.render(); }
+                if (weight && reps) { store.addSet(exerciseIndex, { weight, reps }); document.getElementById(`weight-${exerciseIndex}`).value = weight; document.getElementById(`reps-${exerciseIndex}`).value = ""; this.render(); }
             }
-            finishWorkoutSession() { const bodyWeight = document.getElementById("bodyWeight").value; if (bodyWeight) { store.currentSession.bodyWeight = parseFloat(bodyWeight); } store.finishSession(); this.setView("dashboard"); }
+            addCardioActivity() {
+                const activityType = document.getElementById("activityType").value;
+                const km = parseFloat(document.getElementById("cardioKm").value) || null;
+                const minutes = parseInt(document.getElementById("cardioMinutes").value) || null;
+                if (store.addCardioActivity(activityType, km, minutes)) {
+                    document.getElementById("activityType").value = "";
+                    document.getElementById("cardioKm").value = "";
+                    document.getElementById("cardioMinutes").value = "";
+                    this.render();
+                }
+            }
+            finishWorkoutSession() {
+                const bodyWeight = document.getElementById("bodyWeight")?.value;
+                if (bodyWeight) { store.currentSession.bodyWeight = parseFloat(bodyWeight); }
+                store.finishSession();
+                this.setView("dashboard");
+            }
             saveNewTemplate() {
                 const name = document.getElementById("templateName").value;
                 const checkboxes = document.querySelectorAll(".exercise-checkbox:checked");

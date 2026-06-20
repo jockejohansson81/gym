@@ -267,21 +267,16 @@
 
             async init() {
                 await store.loadMockData();
-                console.log("After loadMockData:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
                 await store.loadFromFirebase();
-                console.log("After loadFromFirebase:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
-                // Ensure Kondition template exists for all profiles
+                // Ensure all profiles have Kondition template
+                const konditionTemplate = { id: "kondition", name: "Kondition", type: "cardio", description: "Löpning, cykel eller cardio" };
                 for (let profileKey in store.profiles) {
-                    if (!store.profiles[profileKey].workoutTemplates.find(t => t.id === "kondition")) {
-                        store.profiles[profileKey].workoutTemplates.push({
-                            id: "kondition",
-                            name: "Kondition",
-                            type: "cardio",
-                            description: "Löpning, cykel eller cardio"
-                        });
+                    const profile = store.profiles[profileKey];
+                    if (!profile.workoutTemplates) profile.workoutTemplates = [];
+                    if (!profile.workoutTemplates.find(t => t.id === "kondition")) {
+                        profile.workoutTemplates.push(konditionTemplate);
                     }
                 }
-                console.log("After ensuring Kondition:", store.profiles["joakim"].workoutTemplates.map(t => t.name));
                 this.render();
             }
 
